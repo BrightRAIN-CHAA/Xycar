@@ -1,0 +1,13 @@
+package.xml
+setup.cfg
+setup.py
+my_imu/__init__.py
+my_imu/roll_pitch_yaw.py
+my_imu.egg-info/PKG-INFO
+my_imu.egg-info/SOURCES.txt
+my_imu.egg-info/dependency_links.txt
+my_imu.egg-info/entry_points.txt
+my_imu.egg-info/requires.txt
+my_imu.egg-info/top_level.txt
+my_imu.egg-info/zip-safe
+resource/my_imu

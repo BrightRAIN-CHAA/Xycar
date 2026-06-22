@@ -1,0 +1,3 @@
+[console_scripts]
+track_drive = track_drive.track_drive:main
+

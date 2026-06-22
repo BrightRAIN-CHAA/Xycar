@@ -1,0 +1,23 @@
+running develop
+running egg_info
+creating my_motor.egg-info
+writing my_motor.egg-info/PKG-INFO
+writing dependency_links to my_motor.egg-info/dependency_links.txt
+writing entry points to my_motor.egg-info/entry_points.txt
+writing requirements to my_motor.egg-info/requires.txt
+writing top-level names to my_motor.egg-info/top_level.txt
+writing manifest file 'my_motor.egg-info/SOURCES.txt'
+reading manifest file 'my_motor.egg-info/SOURCES.txt'
+writing manifest file 'my_motor.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/xytron/xycar_ws/install/my_motor/lib/python3.10/site-packages/my-motor.egg-link (link to .)
+Installing go script to /home/xytron/xycar_ws/install/my_motor/lib/my_motor
+Installing go_stop script to /home/xytron/xycar_ws/install/my_motor/lib/my_motor
+
+Installed /home/xytron/xycar_ws/build/my_motor
+running symlink_data
+creating /home/xytron/xycar_ws/install/my_motor/share/ament_index
+creating /home/xytron/xycar_ws/install/my_motor/share/ament_index/resource_index
+creating /home/xytron/xycar_ws/install/my_motor/share/ament_index/resource_index/packages
+symbolically linking /home/xytron/xycar_ws/build/my_motor/resource/my_motor -> /home/xytron/xycar_ws/install/my_motor/share/ament_index/resource_index/packages
+symbolically linking /home/xytron/xycar_ws/build/my_motor/package.xml -> /home/xytron/xycar_ws/install/my_motor/share/my_motor

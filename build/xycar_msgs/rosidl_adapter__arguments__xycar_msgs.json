@@ -1,0 +1,7 @@
+{
+  "package_name": "xycar_msgs",
+  "non_idl_tuples": [
+    "/home/xytron/xycar_ws/src/xycar_msgs:msg/XycarMotor.msg",
+    "/home/xytron/xycar_ws/src/xycar_msgs:msg/XycarUltrasonic.msg"
+  ]
+}

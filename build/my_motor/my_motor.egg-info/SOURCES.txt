@@ -1,0 +1,14 @@
+package.xml
+setup.cfg
+setup.py
+my_motor/__init__.py
+my_motor/go.py
+my_motor/go_stop.py
+my_motor.egg-info/PKG-INFO
+my_motor.egg-info/SOURCES.txt
+my_motor.egg-info/dependency_links.txt
+my_motor.egg-info/entry_points.txt
+my_motor.egg-info/requires.txt
+my_motor.egg-info/top_level.txt
+my_motor.egg-info/zip-safe
+resource/my_motor

@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "xycar_msgs__py",
+		"source" : "/home/xytron/xycar_ws/build/xycar_msgs/xycar_msgs__py"
+	}
+}
