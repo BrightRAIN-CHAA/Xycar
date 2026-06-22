@@ -1,0 +1,26 @@
+[1.903s] Invoking command in '/home/xytron/xycar_ws/build/ros_tcp_endpoint': PYTHONPATH=/home/xytron/xycar_ws/build/ros_tcp_endpoint/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/xytron/xycar_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/xytron/xycar_ws/build/ros_tcp_endpoint/build --no-deps symlink_data
+[2.214s] running develop
+[2.394s] running egg_info
+[2.394s] creating ros_tcp_endpoint.egg-info
+[2.394s] writing ros_tcp_endpoint.egg-info/PKG-INFO
+[2.394s] writing dependency_links to ros_tcp_endpoint.egg-info/dependency_links.txt
+[2.394s] writing entry points to ros_tcp_endpoint.egg-info/entry_points.txt
+[2.394s] writing requirements to ros_tcp_endpoint.egg-info/requires.txt
+[2.394s] writing top-level names to ros_tcp_endpoint.egg-info/top_level.txt
+[2.395s] writing manifest file 'ros_tcp_endpoint.egg-info/SOURCES.txt'
+[2.396s] reading manifest file 'ros_tcp_endpoint.egg-info/SOURCES.txt'
+[2.397s] writing manifest file 'ros_tcp_endpoint.egg-info/SOURCES.txt'
+[2.399s] running build_ext
+[2.399s] Creating /home/xytron/xycar_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros-tcp-endpoint.egg-link (link to .)
+[2.401s] Installing default_server_endpoint script to /home/xytron/xycar_ws/install/ros_tcp_endpoint/lib/ros_tcp_endpoint
+[2.402s] 
+[2.402s] Installed /home/xytron/xycar_ws/build/ros_tcp_endpoint
+[2.402s] running symlink_data
+[2.403s] creating /home/xytron/xycar_ws/install/ros_tcp_endpoint/share/ament_index
+[2.404s] creating /home/xytron/xycar_ws/install/ros_tcp_endpoint/share/ament_index/resource_index
+[2.404s] creating /home/xytron/xycar_ws/install/ros_tcp_endpoint/share/ament_index/resource_index/packages
+[2.404s] symbolically linking /home/xytron/xycar_ws/build/ros_tcp_endpoint/resource/ros_tcp_endpoint -> /home/xytron/xycar_ws/install/ros_tcp_endpoint/share/ament_index/resource_index/packages
+[2.405s] symbolically linking /home/xytron/xycar_ws/build/ros_tcp_endpoint/package.xml -> /home/xytron/xycar_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint
+[2.405s] creating /home/xytron/xycar_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/launch
+[2.405s] symbolically linking /home/xytron/xycar_ws/build/ros_tcp_endpoint/launch/endpoint.py -> /home/xytron/xycar_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/launch
+[2.488s] Invoked command in '/home/xytron/xycar_ws/build/ros_tcp_endpoint' returned '0': PYTHONPATH=/home/xytron/xycar_ws/build/ros_tcp_endpoint/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/xytron/xycar_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/xytron/xycar_ws/build/ros_tcp_endpoint/build --no-deps symlink_data

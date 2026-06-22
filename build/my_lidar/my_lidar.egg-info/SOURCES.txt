@@ -1,0 +1,14 @@
+package.xml
+setup.cfg
+setup.py
+my_lidar/__init__.py
+my_lidar/lidar_scan.py
+my_lidar/lidar_viewer.py
+my_lidar.egg-info/PKG-INFO
+my_lidar.egg-info/SOURCES.txt
+my_lidar.egg-info/dependency_links.txt
+my_lidar.egg-info/entry_points.txt
+my_lidar.egg-info/requires.txt
+my_lidar.egg-info/top_level.txt
+my_lidar.egg-info/zip-safe
+resource/my_lidar

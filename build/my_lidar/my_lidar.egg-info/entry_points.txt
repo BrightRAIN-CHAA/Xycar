@@ -1,0 +1,4 @@
+[console_scripts]
+lidar_scan = my_lidar.lidar_scan:main
+lidar_viewer = my_lidar.lidar_viewer:main
+

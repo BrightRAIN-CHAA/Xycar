@@ -1,0 +1,4 @@
+[console_scripts]
+go = my_motor.go:main
+go_stop = my_motor.go_stop:main
+

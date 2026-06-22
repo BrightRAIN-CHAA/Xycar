@@ -1,0 +1,3 @@
+[console_scripts]
+roll_pitch_yaw = my_imu.roll_pitch_yaw:main
+

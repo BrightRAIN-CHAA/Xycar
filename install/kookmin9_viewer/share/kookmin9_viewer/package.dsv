@@ -1,0 +1,9 @@
+source;share/kookmin9_viewer/hook/pythonpath.ps1
+source;share/kookmin9_viewer/hook/pythonpath.dsv
+source;share/kookmin9_viewer/hook/pythonpath.sh
+source;share/kookmin9_viewer/hook/ament_prefix_path.ps1
+source;share/kookmin9_viewer/hook/ament_prefix_path.dsv
+source;share/kookmin9_viewer/hook/ament_prefix_path.sh
+source;../../build/kookmin9_viewer/share/kookmin9_viewer/hook/pythonpath_develop.ps1
+source;../../build/kookmin9_viewer/share/kookmin9_viewer/hook/pythonpath_develop.dsv
+source;../../build/kookmin9_viewer/share/kookmin9_viewer/hook/pythonpath_develop.sh
