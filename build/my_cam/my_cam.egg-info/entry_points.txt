@@ -1,3 +1,0 @@
-[console_scripts]
-cam_viewer = my_cam.cam_viewer:main
-

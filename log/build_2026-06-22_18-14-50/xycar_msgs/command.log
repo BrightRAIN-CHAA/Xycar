@@ -1,6 +1,0 @@
-Invoking command in '/home/xytron/xycar_ws/build/xycar_msgs': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /home/xytron/xycar_ws/src/xycar_msgs -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/xytron/xycar_ws/install/xycar_msgs
-Invoked command in '/home/xytron/xycar_ws/build/xycar_msgs' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /home/xytron/xycar_ws/src/xycar_msgs -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/xytron/xycar_ws/install/xycar_msgs
-Invoking command in '/home/xytron/xycar_ws/build/xycar_msgs': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/xytron/xycar_ws/build/xycar_msgs -- -j16 -l16
-Invoked command in '/home/xytron/xycar_ws/build/xycar_msgs' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/xytron/xycar_ws/build/xycar_msgs -- -j16 -l16
-Invoking command in '/home/xytron/xycar_ws/build/xycar_msgs': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/xytron/xycar_ws/build/xycar_msgs
-Invoked command in '/home/xytron/xycar_ws/build/xycar_msgs' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/xytron/xycar_ws/build/xycar_msgs

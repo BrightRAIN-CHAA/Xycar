@@ -1,1 +1,0 @@
-/home/xytron/xycar_ws/build/xycar_msgs/rosidl_generator_cpp/xycar_msgs/msg/detail/xycar_motor__traits.hpp
