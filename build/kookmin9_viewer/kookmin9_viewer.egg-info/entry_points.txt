@@ -1,3 +1,0 @@
-[console_scripts]
-test_viewer = kookmin9_viewer.test_viewer:main
-

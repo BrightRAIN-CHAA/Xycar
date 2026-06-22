@@ -1,1 +1,0 @@
-/home/xytron/xycar_ws/build/xycar_msgs/rosidl_generator_c/xycar_msgs/msg/detail/xycar_motor__struct.h
