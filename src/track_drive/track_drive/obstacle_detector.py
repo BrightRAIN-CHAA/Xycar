@@ -16,8 +16,8 @@ import math
 LIDAR_TOTAL_POINTS = 360     # 기본 360개 포인트 (1도당 1개)
 LIDAR_MAX_RANGE = 10.0       # 최대 감지 거리 (미터)
 
-FRONT_ANGLE_MIN = -30        # 우측 30도 (음수 각도)
-FRONT_ANGLE_MAX = 30         # 좌측 30도 (양수 각도)
+FRONT_ANGLE_MIN = -45        # 우측 45도 (음수 각도)
+FRONT_ANGLE_MAX = 45         # 좌측 45도 (양수 각도)
 
 CONE_DETECT_RANGE = 5.0      # 라바콘 감지 최대 거리 (미터) (늘림)
 CONE_MIN_POINTS = 2          # 라바콘 판별 최소 점 수 (줄임)
@@ -136,9 +136,9 @@ class ObstacleDetector:
                 continue
 
             # 양수 각도는 좌측, 음수 각도는 우측 (시야 확장)
-            if 0 < angle_deg <= 75:
+            if 0 < angle_deg <= 110:
                 left_points.append(dist)
-            elif -75 <= angle_deg < 0:
+            elif -110 <= angle_deg < 0:
                 right_points.append(dist)
 
         if len(left_points) >= CONE_MIN_POINTS and len(right_points) >= CONE_MIN_POINTS:
@@ -156,11 +156,11 @@ class ObstacleDetector:
 
         elif len(left_points) >= CONE_MIN_POINTS:
             result['cone_detected'] = True
-            result['steer_offset'] = 45.0
+            result['steer_offset'] = 50.0
 
         elif len(right_points) >= CONE_MIN_POINTS:
             result['cone_detected'] = True
-            result['steer_offset'] = -45.0
+            result['steer_offset'] = -50.0
 
         return result
 
