@@ -73,32 +73,31 @@ class TrackDriverNode(Node):
         if self.image is None:
             return "UNKNOWN"
             
-        # 1. ROI(관심 영역) 축소: 
-        # 주변 배경(나무, 잔디 등)을 최대한 피하기 위해 화면의 가로 중앙 60%, 세로 상단 40%만 봅니다.
+        # 1. ROI(관심 영역) 강력 축소: 
+        # 주변 배경(특히 노란색, 초록색 나무 등)을 피하기 위해 화면의 가로 중앙부, 세로 상단부만 극도로 좁혀서 봅니다.
         h, w = self.image.shape[:2]
-        roi = self.image[0:int(h/2), 0:w]
+        # 세로: 상단 10% ~ 40%, 가로: 중앙 35% ~ 65% (신호등 위치만 타겟팅)
+        roi = self.image[int(h*0.1):int(h*0.4), int(w*0.35):int(w*0.65)]
         
         # BGR 이미지를 HSV 색공간으로 변환
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         
-        # 2. 색상 임계값 설정
+        # 2. 색상 임계값 설정 (빛나는 신호등만 잡기 위해 S와 V를 매우 높게 설정)
         # 빨간색(Red) 영역 감지
-        mask_red1 = cv2.inRange(hsv, np.array([0, 100, 100]), np.array([10, 255, 255]))
-        mask_red2 = cv2.inRange(hsv, np.array([160, 100, 100]), np.array([180, 255, 255]))
+        mask_red1 = cv2.inRange(hsv, np.array([0, 180, 180]), np.array([10, 255, 255]))
+        mask_red2 = cv2.inRange(hsv, np.array([160, 180, 180]), np.array([180, 255, 255]))
         red_pixels = cv2.countNonZero(mask_red1) + cv2.countNonZero(mask_red2)
         
         # 노란색(Yellow) 영역 감지
-        mask_yellow = cv2.inRange(hsv, np.array([15, 100, 100]), np.array([35, 255, 255]))
+        mask_yellow = cv2.inRange(hsv, np.array([15, 180, 180]), np.array([35, 255, 255]))
         yellow_pixels = cv2.countNonZero(mask_yellow)
 
-        # 초록색(Green) 영역 감지 (★수정됨)
-        # 배경 풀/나무 등은 명도(V)와 채도(S)가 낮습니다. 
-        # 신호등 불빛은 뿜어져 나오는 빛이므로 S와 V를 높게(150 이상) 잡아서 배경을 걸러냅니다.
-        mask_green = cv2.inRange(hsv, np.array([45, 150, 150]), np.array([90, 255, 255]))
+        # 초록색(Green) 영역 감지
+        mask_green = cv2.inRange(hsv, np.array([45, 180, 180]), np.array([90, 255, 255]))
         green_pixels = cv2.countNonZero(mask_green)
 
         # 3. 신호 판별
-        min_pixels = 30  # ROI가 좁아졌으므로 최소 픽셀 기준도 살짝 낮춤
+        min_pixels = 10  # ROI가 매우 좁아졌으므로 최소 픽셀 기준도 낮춤
 
         # 가장 픽셀 수가 많은 색상을 현재 신호로 판단
         if green_pixels > min_pixels and green_pixels > red_pixels and green_pixels > yellow_pixels:
