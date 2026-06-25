@@ -4,15 +4,35 @@ import cv2
 import rclpy
 from rclpy.node import Node
 import numpy as np
+from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from rclpy.qos import qos_profile_sensor_data
-from cv_bridge import CvBridge
+
+import sys
+import os
+
+# ROS2 런타임 환경에서 track_drive 모듈을 확실하게 찾을 수 있도록
+# xycar_ws/src/track_drive 경로를 sys.path에 강제로 추가합니다.
+track_drive_path = "/home/xytron/xycar_ws/src/track_drive"
+if os.path.exists(track_drive_path) and track_drive_path not in sys.path:
+    sys.path.insert(0, track_drive_path)
+
+try:
+    from track_drive.line_drive import LineDriver
+except ImportError as e:
+    print(f"[Cam Viewer] Error importing LineDriver: {e}")
+    LineDriver = None
 
 class CamViewerNode(Node):
     def __init__(self):
         super().__init__('cam_viewer')
 
         self.bridge = CvBridge()
+
+        if LineDriver is not None:
+            self.line_driver = LineDriver()
+        else:
+            self.line_driver = None
 
         self.images = {
             "front": None,
@@ -66,6 +86,16 @@ class CamViewerNode(Node):
         combined = np.vstack((top, bottom))
 
         cv2.imshow("4 Cameras", combined)
+
+        # 차선 인식 디버깅 화면 추가 (Front Camera 기준)
+        if self.line_driver is not None and self.images["front"] is not None:
+            front_img = self.images["front"]
+            # 내부적으로 색상 필터, 버드아이뷰, 다항식 피팅을 수행하고 debug_img를 생성함
+            self.line_driver.compute_steering(front_img)
+            
+            if hasattr(self.line_driver, 'debug_img'):
+                cv2.imshow("Lane Detection (Bird's Eye + Target Path)", self.line_driver.debug_img)
+
         cv2.waitKey(1)
 
 

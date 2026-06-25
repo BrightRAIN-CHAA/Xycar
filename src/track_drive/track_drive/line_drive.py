@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 class LineDriver:
-    def __init__(self, target_speed=15, kp=0.4, kd=0.2):
+    def __init__(self, target_speed=5, kp=0.8, kd=0.2):
         """
         카메라 차선 인식 주행(Phase 2)을 위한 클래스입니다.
         Bird's Eye View 변환 및 Sliding Window를 사용합니다.
@@ -19,8 +19,8 @@ class LineDriver:
         # Xycar 시뮬레이터 카메라 해상도: 640x480
         # 도로 위 차선 영역의 사다리꼴 좌표 (상단 좌/우, 하단 좌/우)
         self.src_points = np.float32([
-            [150, 320], [490, 320],
-            [0, 480], [640, 480]
+            [37, 264], [603, 264],
+            [-125, 480], [765, 480]
         ])
         
         # 위 사다리꼴을 펼칠 직사각형 좌표 (Top View)
@@ -143,6 +143,42 @@ class LineDriver:
         # 4. 슬라이딩 윈도우 및 다항식 피팅
         left_fit, right_fit, _, _ = self.sliding_window(binary_warped)
         
+        # --- 디버깅용 이미지 생성 (버드아이뷰 + 목표 경로 빨간선) ---
+        out_img = np.dstack((binary_warped, binary_warped, binary_warped)).astype(np.uint8)
+        ploty = np.linspace(0, height - 1, height)
+        target_fitx = None
+        
+        if left_fit is not None and right_fit is not None:
+            left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+            right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+            target_fitx = (left_fitx + right_fitx) / 2.0
+            
+            # 왼쪽(파란색), 오른쪽(초록색) 차선도 시각화
+            left_pts = np.array([np.transpose(np.vstack([left_fitx, ploty]))], np.int32)
+            right_pts = np.array([np.transpose(np.vstack([right_fitx, ploty]))], np.int32)
+            cv2.polylines(out_img, [left_pts], isClosed=False, color=(255, 0, 0), thickness=2)
+            cv2.polylines(out_img, [right_pts], isClosed=False, color=(0, 255, 0), thickness=2)
+            
+        elif left_fit is not None:
+            left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+            target_fitx = left_fitx + 300
+            left_pts = np.array([np.transpose(np.vstack([left_fitx, ploty]))], np.int32)
+            cv2.polylines(out_img, [left_pts], isClosed=False, color=(255, 0, 0), thickness=2)
+            
+        elif right_fit is not None:
+            right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+            target_fitx = right_fitx - 300
+            right_pts = np.array([np.transpose(np.vstack([right_fitx, ploty]))], np.int32)
+            cv2.polylines(out_img, [right_pts], isClosed=False, color=(0, 255, 0), thickness=2)
+            
+        if target_fitx is not None:
+            # 목표 경로를 얇은 빨간선으로 그리기
+            target_pts = np.array([np.transpose(np.vstack([target_fitx, ploty]))], np.int32)
+            cv2.polylines(out_img, [target_pts], isClosed=False, color=(0, 0, 255), thickness=1)
+            
+        self.debug_img = out_img
+        # --------------------------------------------------------
+        
         # 5. Cross Track Error 계산 및 조향 제어
         y_eval = height # 차량 바로 앞 (이미지 최하단) 기준
         
@@ -173,12 +209,12 @@ class LineDriver:
         # 이미지상 target_x가 중앙보다 크면(오른쪽) error > 0 -> 자이카는 우회전(양수)
         # 만약 실제 동작 시 조향이 반대라면 angle = -angle 처리
         
-        angle = max(-50.0, min(50.0, angle))
+        angle = max(-100.0, min(100.0, angle))
         self.prev_angle = angle
         
         # 속도 감속 로직
         speed = self.target_speed
-        if abs(angle) > 20.0:
-            speed = self.target_speed * 0.7
+        if abs(angle) > 30.0:
+            speed = self.target_speed * 0.5
             
         return float(angle), float(speed)
