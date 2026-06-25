@@ -82,8 +82,8 @@ class ConeDriver:
         def extract_lane(all_clusters, is_left):
             if not all_clusters: return []
             
-            # 1. 시야 내의 가까운 고깔들 중 출발점 후보 색출
-            front_cones = sorted([c for c in all_clusters if c[1] < 12.0 and abs(c[0]) < 8.0], key=lambda c: math.hypot(c[0], c[1]))
+            # 1. 시야 내의 가까운 고깔들 중 출발점 후보 색출 (선이 끝났을 때 저 멀리 있는 고깔을 새로 잡는 것 방지)
+            front_cones = sorted([c for c in all_clusters if c[1] < 7.0 and abs(c[0]) < 8.0], key=lambda c: math.hypot(c[0], c[1]))
             if not front_cones: return []
             
             # 2. 가장 가까운 고깔(C1)과, 그 반대편 차선에 있을 법한 고깔(C2) 탐색

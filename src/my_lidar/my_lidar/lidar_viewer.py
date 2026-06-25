@@ -110,8 +110,8 @@ class LidarVisualizer(Node):
         # 차선 추적 알고리즘
         def extract_lane(all_clusters, is_left):
             if not all_clusters: return []
-            
-            front_cones = sorted([c for c in all_clusters if c[1] < 12.0 and abs(c[0]) < 8.0], key=lambda c: math.hypot(c[0], c[1]))
+            # 선이 끝났을 때 저 멀리 있는 고깔을 새로 잡는 것 방지 (가까운 고깔에서만 시작)
+            front_cones = sorted([c for c in all_clusters if c[1] < 7.0 and abs(c[0]) < 8.0], key=lambda c: math.hypot(c[0], c[1]))
             if not front_cones: return []
             
             C1 = front_cones[0]
