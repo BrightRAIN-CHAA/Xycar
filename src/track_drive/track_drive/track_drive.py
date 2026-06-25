@@ -15,6 +15,8 @@ from rclpy.qos import qos_profile_sensor_data
 from rclpy.duration import Duration
 from cv_bridge import CvBridge
 from track_drive.lidar_drive import ConeDriver
+from track_drive.line_drive import LineDriver
+from track_drive.phase_manager import PhaseManager
 
 #=============================================
 # ROS2 Node 클래스 정의
@@ -35,7 +37,9 @@ class TrackDriverNode(Node):
         self.lidar_ranges = None
         self.bridge = CvBridge()
         self.cone_driver = ConeDriver()
-        self.phase = 0  # 0: 신호등 대기, 1: 라바콘 주행
+        self.line_driver = LineDriver()
+        self.phase_manager = PhaseManager()
+        self.phase = 1  # 1: 신호등 대기, 2: 라바콘 주행, 3: 아스팔트 차선 주행
         
         # ROS2 Publisher & Subscriber 설정
         self.motor_pub = self.create_publisher(XycarMotor,'xycar_motor',10)
@@ -70,49 +74,6 @@ class TrackDriverNode(Node):
         self.motor_pub.publish(self.motor_msg)
     
     #=============================================
-    # 신호등 상태 감지 함수 (빨강/노랑/초록 비교)
-    #=============================================
-    def detect_traffic_light(self):
-        if self.image is None:
-            return "UNKNOWN"
-            
-        # 1. ROI(관심 영역) 강력 축소: 
-        # 주변 배경(특히 노란색, 초록색 나무 등)을 피하기 위해 화면의 가로 중앙부, 세로 상단부만 극도로 좁혀서 봅니다.
-        h, w = self.image.shape[:2]
-        # 세로: 상단 10% ~ 40%, 가로: 중앙 35% ~ 65% (신호등 위치만 타겟팅)
-        roi = self.image[int(h*0.1):int(h*0.4), int(w*0.35):int(w*0.65)]
-        
-        # BGR 이미지를 HSV 색공간으로 변환
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        
-        # 2. 색상 임계값 설정 (빛나는 신호등만 잡기 위해 S와 V를 매우 높게 설정)
-        # 빨간색(Red) 영역 감지
-        mask_red1 = cv2.inRange(hsv, np.array([0, 180, 180]), np.array([10, 255, 255]))
-        mask_red2 = cv2.inRange(hsv, np.array([160, 180, 180]), np.array([180, 255, 255]))
-        red_pixels = cv2.countNonZero(mask_red1) + cv2.countNonZero(mask_red2)
-        
-        # 노란색(Yellow) 영역 감지
-        mask_yellow = cv2.inRange(hsv, np.array([15, 180, 180]), np.array([35, 255, 255]))
-        yellow_pixels = cv2.countNonZero(mask_yellow)
-
-        # 초록색(Green) 영역 감지
-        mask_green = cv2.inRange(hsv, np.array([45, 180, 180]), np.array([90, 255, 255]))
-        green_pixels = cv2.countNonZero(mask_green)
-
-        # 3. 신호 판별
-        min_pixels = 10  # ROI가 매우 좁아졌으므로 최소 픽셀 기준도 낮춤
-
-        # 가장 픽셀 수가 많은 색상을 현재 신호로 판단
-        if green_pixels > min_pixels and green_pixels > red_pixels and green_pixels > yellow_pixels:
-            return "GREEN"
-        elif red_pixels > min_pixels and red_pixels > yellow_pixels:
-            return "RED"
-        elif yellow_pixels > min_pixels:
-            return "YELLOW"
-            
-        return "UNKNOWN"
-    
-    #=============================================
     # 메인 루프
     #=============================================
     def main_loop(self):
@@ -127,7 +88,7 @@ class TrackDriverNode(Node):
             # ROS2 콜백 처리를 위해 spin_once 호출 필수
             rclpy.spin_once(self, timeout_sec=0.05)
             
-            if self.phase == 0:
+            if self.phase == 1:
                 if self.image is None:
                     continue
                     
@@ -135,20 +96,41 @@ class TrackDriverNode(Node):
                 self.drive(angle=0, speed=0)
                 
                 # 신호등 상태 확인
-                signal = self.detect_traffic_light()
+                signal = self.phase_manager.detect_traffic_light(self.image)
                 
                 if signal == "GREEN":
                     self.get_logger().info("★ 초록불 감지! [Phase 2] 라바콘 회피 주행을 시작합니다!")
-                    self.phase = 1
+                    self.phase = 2
                 else:
                     # 로그가 너무 빨리 올라가는 것을 방지 (약 0.5초마다 한 번씩만 출력)
                     wait_log_count += 1
                     if wait_log_count % 10 == 0:
                         self.get_logger().info(f"신호 대기 중... 현재 감지된 신호: {signal}")
                         
-            elif self.phase == 1:
+            elif self.phase == 2:
+                # 초기 타이머(프레임 카운터) 초기화
+                if not hasattr(self, 'phase2_frame_count'):
+                    self.phase2_frame_count = 0
+                self.phase2_frame_count += 1
+                
                 # 라바콘 회피 주행 모드
                 angle, speed = self.cone_driver.compute_steering(self.lidar_ranges)
+                self.drive(angle, speed)
+                
+                # 출발 직후 바닥의 마크를 아스팔트로 오인하는 것을 방지하기 위해, 약 3초(60프레임) 이후부터 체크!
+                is_on_asphalt = False
+                if self.phase2_frame_count > 60:
+                    is_on_asphalt = self.phase_manager.detect_asphalt(self.image)
+                
+                if is_on_asphalt:
+                    self.get_logger().info("★ 아스팔트 차선 진입 확인! [Phase 3] 아스팔트 차선 주행 모드로 전환합니다!")
+                    self.phase = 3
+                    
+            elif self.phase == 3:
+                # 아스팔트 차선 주행 모드 (카메라 기반)
+                if self.image is None:
+                    continue
+                angle, speed = self.line_driver.compute_steering(self.image)
                 self.drive(angle, speed)
                 
 #=============================================
