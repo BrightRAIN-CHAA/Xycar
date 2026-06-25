@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 class LineDriver:
-    def __init__(self, target_speed=5, kp=0.8, kd=0.2):
+    def __init__(self, target_speed=2, kp=0.8, kd=0.2):
         """
         카메라 차선 인식 주행(Phase 2)을 위한 클래스입니다.
         Bird's Eye View 변환 및 Sliding Window를 사용합니다.
@@ -19,8 +19,8 @@ class LineDriver:
         # Xycar 시뮬레이터 카메라 해상도: 640x480
         # 도로 위 차선 영역의 사다리꼴 좌표 (상단 좌/우, 하단 좌/우)
         self.src_points = np.float32([
-            [37, 264], [603, 264],
-            [-125, 480], [765, 480]
+            [100, 280], [540, 280],
+            [-50, 480], [690, 480]
         ])
         
         # 위 사다리꼴을 펼칠 직사각형 좌표 (Top View)
