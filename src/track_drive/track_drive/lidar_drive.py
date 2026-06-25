@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 
 class ConeDriver:
-    def __init__(self, target_speed=10, kp=70.0, max_angle=100.0):
+    def __init__(self, target_speed=20, kp=70.0, max_angle=100.0):
         """
         라바콘 회피 주행을 위한 클래스입니다.
         """
@@ -191,7 +191,7 @@ class ConeDriver:
         target_x = 0.0
         
         # 속도에 비례하여 기본 Lookahead 거리 설정 (조향을 조금 더 늦게/타이트하게 시작하도록 계수 감소)
-        base_lookahead = max(2.0, self.target_speed * 0.4) 
+        base_lookahead = max(2.0, self.target_speed * 0.25) 
         TRACK_HALF_WIDTH = 2.5 # 고깔이 좌우 2.5m (총 5m 폭)
         
         def fit_lane_x_at_y(lane_pts, target_y):
