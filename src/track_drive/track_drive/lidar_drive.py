@@ -122,12 +122,12 @@ class ConeDriver:
                     if not is_left and c[0] > 0.5:
                         continue
                         
-                    dist = math.hypot(c[0] - last_c[0], c[1] - last_c[1])
                     dy = c[1] - last_c[1]
-                    dx = abs(c[0] - last_c[0])
+                    # Plot X 기준 변화량 (사용자 정의 dx): last_c[0] - c[0]
+                    dx_plot = last_c[0] - c[0]
                     
-                    # 추적 반경 12m, U턴 대비 후퇴 허용(-2.0m), 차선 점프 완벽 방지(dx < 2.5m)
-                    if dist < 12.0 and dy > -2.0 and dx < 2.5:
+                    # 고객님 요청사항: dx는 -2.5 ~ 0.5 사이, dy는 0.1 ~ 3.0 사이를 모두 만족할 때만 추가
+                    if -2.5 <= dx_plot <= 0.5 and 0.1 <= dy <= 3.0:
                         neighbors.append(c)
                         
                 if not neighbors:
