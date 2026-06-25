@@ -56,7 +56,7 @@ class StartOnGreenNode(Node):
         if signal == SIGNAL_GREEN:
             self.get_logger().info('★ 초록불 감지! 직진으로 출발합니다!')
             self.is_started = True
-            self.drive(angle=0.0, speed=15.0)
+            self.drive(angle=0.0, speed=5.0)
         else:
             # 빨강불이나 노랑불 등일 때 대기
             if signal != SIGNAL_UNKNOWN:

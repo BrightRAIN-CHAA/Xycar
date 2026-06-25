@@ -14,6 +14,7 @@ from sensor_msgs.msg import LaserScan
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.duration import Duration
 from cv_bridge import CvBridge
+from track_drive.lidar_drive import ConeDriver
 
 #=============================================
 # ROS2 Node 클래스 정의
@@ -33,6 +34,8 @@ class TrackDriverNode(Node):
         self.motor_msg = XycarMotor()  # 모터토픽 메시지        
         self.lidar_ranges = None
         self.bridge = CvBridge()
+        self.cone_driver = ConeDriver()
+        self.phase = 0  # 0: 신호등 대기, 1: 라바콘 주행
         
         # ROS2 Publisher & Subscriber 설정
         self.motor_pub = self.create_publisher(XycarMotor,'xycar_motor',10)
@@ -115,20 +118,19 @@ class TrackDriverNode(Node):
     def main_loop(self):
     
         self.get_logger().info("======================================")
-        self.get_logger().info("  신호등 감지 대기 중 ...             ")
+        self.get_logger().info("  [Phase 1] 신호등 감지 대기 중 ...             ")
         self.get_logger().info("======================================")
 
-        is_started = False
         wait_log_count = 0
 
         while rclpy.ok():
             # ROS2 콜백 처리를 위해 spin_once 호출 필수
             rclpy.spin_once(self, timeout_sec=0.05)
             
-            if self.image is None:
-                continue
-                
-            if not is_started:
+            if self.phase == 0:
+                if self.image is None:
+                    continue
+                    
                 # 정지 상태 유지
                 self.drive(angle=0, speed=0)
                 
@@ -136,16 +138,18 @@ class TrackDriverNode(Node):
                 signal = self.detect_traffic_light()
                 
                 if signal == "GREEN":
-                    self.get_logger().info("★ 초록불 감지! 직진으로 출발합니다!")
-                    is_started = True
+                    self.get_logger().info("★ 초록불 감지! [Phase 2] 라바콘 회피 주행을 시작합니다!")
+                    self.phase = 1
                 else:
                     # 로그가 너무 빨리 올라가는 것을 방지 (약 0.5초마다 한 번씩만 출력)
                     wait_log_count += 1
                     if wait_log_count % 10 == 0:
                         self.get_logger().info(f"신호 대기 중... 현재 감지된 신호: {signal}")
-            else:
-                # 초록불이 켜진 이후로는 계속 직진
-                self.drive(angle=0, speed=15)
+                        
+            elif self.phase == 1:
+                # 라바콘 회피 주행 모드
+                angle, speed = self.cone_driver.compute_steering(self.lidar_ranges)
+                self.drive(angle, speed)
                 
 #=============================================
 # 메인 함수
