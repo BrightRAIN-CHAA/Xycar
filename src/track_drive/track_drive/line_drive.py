@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 class LineDriver:
-    def __init__(self, target_speed=10, kp=0.5, kd=0.4, a_max=0.01, k_expand=50000.0, max_expand=150.0, lane_width=360, lookahead_dist=100):
+    def __init__(self, target_speed=10, kp=0.5, kd=0.4, a_max=0.01, k_expand=50000.0, max_expand=360.0, lane_width=360, lookahead_dist=100):
         """
         카메라 차선 인식 주행(Phase 2)을 위한 클래스입니다.
         Bird's Eye View 변환 및 Sliding Window를 사용합니다.
@@ -17,7 +17,7 @@ class LineDriver:
         # 물리 제어 및 동적 FOV 파라미터
         self.a_max = a_max       # 최대 횡가속도 한계 (튜닝 필요)
         self.k_expand = k_expand # 곡률 비례 시야 확장 계수 (튜닝 필요)
-        self.max_expand = max_expand # 한쪽 방향 최대 확장 픽셀
+        self.max_expand = max_expand # 한쪽 방향 최대 확장 픽셀 (360으로 대폭 확대)
         self.lane_width = lane_width # 단일 차선 검출 시 사용할 차선 폭 (픽셀 단위)
         
         self.prev_error = 0.0
@@ -50,29 +50,53 @@ class LineDriver:
         yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
         
         # 흰색 차선 (우측 갓길선) 추출
-        lower_white = np.array([0, 0, 200])
+        # 음영(그림자) 구간에서도 차선을 안정적으로 검출할 수 있도록 V(Value) 하한선을 200 -> 140으로 대폭 하향
+        lower_white = np.array([0, 0, 140])
         upper_white = np.array([180, 30, 255])
         white_mask = cv2.inRange(hsv, lower_white, upper_white)
         
         # 마스크를 합치지 않고 개별 반환 (체크무늬 간섭 방지)
         return yellow_mask, white_mask
 
-    def sliding_window(self, left_warped, right_warped):
+    def sliding_window(self, left_warped, right_warped, dynamic_lane_width):
         height = left_warped.shape[0]
         hist_left = np.sum(left_warped[height//2:, :], axis=0)
         hist_right = np.sum(right_warped[height//2:, :], axis=0)
         
         midpoint = int(hist_left.shape[0] // 2)
+        width = left_warped.shape[1]
         
+        # 1. 좌측 차선 우선 탐색
         if np.max(hist_left[:midpoint]) > 0:
             leftx_base = np.argmax(hist_left[:midpoint])
         else:
             leftx_base = None
             
-        if np.max(hist_right[midpoint:]) > 0:
-            rightx_base = np.argmax(hist_right[midpoint:]) + midpoint
+        # 2. 우측 차선 탐색 (좌측 차선이 검출되었다면 인접 차선 간섭 방지를 위해 탐색 영역을 제한)
+        if leftx_base is not None:
+            expected_right = int(leftx_base + dynamic_lane_width)
+            r_start = max(midpoint, expected_right - 80)
+            r_end = min(width, expected_right + 80)
+            if r_start < r_end and np.max(hist_right[r_start:r_end]) > 0:
+                rightx_base = np.argmax(hist_right[r_start:r_end]) + r_start
+            else:
+                rightx_base = min(width - 1, expected_right)
         else:
-            rightx_base = None
+            # 좌측 차선이 없는 경우 우측 절반 영역에서 탐색
+            if np.max(hist_right[midpoint:]) > 0:
+                rightx_base = np.argmax(hist_right[midpoint:]) + midpoint
+            else:
+                rightx_base = None
+                
+            # 우측 차선이 검출되었다면 좌측 차선 역유도
+            if rightx_base is not None:
+                expected_left = int(rightx_base - dynamic_lane_width)
+                l_start = max(0, expected_left - 80)
+                l_end = min(midpoint, expected_left + 80)
+                if l_start < l_end and np.max(hist_left[l_start:l_end]) > 0:
+                    leftx_base = np.argmax(hist_left[l_start:l_end]) + l_start
+                else:
+                    leftx_base = max(0, expected_left)
             
         nwindows = 9
         window_height = int(height // nwindows)
@@ -144,7 +168,16 @@ class LineDriver:
             left_lane_inds = np.concatenate(left_lane_inds)
             leftx = nonzerox_l[left_lane_inds]
             lefty = nonzeroy_l[left_lane_inds] 
-            left_fit = np.polyfit(lefty, leftx, 2) if len(leftx) > 50 else None
+            if len(leftx) > 50:
+                y_span = np.max(lefty) - np.min(lefty)
+                if y_span > 220:
+                    left_fit = np.polyfit(lefty, leftx, 3) # S자 코너 대응 3차식
+                elif y_span > 100:
+                    left_fit = np.polyfit(lefty, leftx, 2) # 일반 코너 2차식
+                else:
+                    left_fit = np.polyfit(lefty, leftx, 1) # 짧은 구간/직선 1차식
+            else:
+                left_fit = None
             if len(lefty) > 0:
                 min_y_l = np.min(lefty)
         else:
@@ -155,7 +188,16 @@ class LineDriver:
             right_lane_inds = np.concatenate(right_lane_inds)
             rightx = nonzerox_r[right_lane_inds]
             righty = nonzeroy_r[right_lane_inds]
-            right_fit = np.polyfit(righty, rightx, 2) if len(rightx) > 50 else None
+            if len(rightx) > 50:
+                y_span = np.max(righty) - np.min(righty)
+                if y_span > 220:
+                    right_fit = np.polyfit(righty, rightx, 3) # S자 코너 대응 3차식
+                elif y_span > 100:
+                    right_fit = np.polyfit(righty, rightx, 2) # 일반 코너 2차식
+                else:
+                    right_fit = np.polyfit(righty, rightx, 1) # 짧은 구간/직선 1차식
+            else:
+                right_fit = None
             if len(righty) > 0:
                 min_y_r = np.min(righty)
         else:
@@ -164,13 +206,29 @@ class LineDriver:
         return left_fit, right_fit, min_y_l, min_y_r
 
     def compute_curvature(self, fit, y_eval):
-        """ 2차식(fit)과 기준 y좌표를 바탕으로 수학적 곡률(|k|)을 계산합니다. """
+        """ 다항식 차수(fit의 길이)에 맞춰 곡률(|k|)을 계산합니다. """
         if fit is None:
             return 0.0
-        A = fit[0]
-        B = fit[1]
-        numerator = abs(2 * A)
-        denominator = (1 + (2 * A * y_eval + B)**2)**1.5
+        
+        deg = len(fit) - 1
+        if deg == 3:
+            A, B, C, D = fit
+            dx = 3 * A * y_eval**2 + 2 * B * y_eval + C
+            d2x = 6 * A * y_eval + 2 * B
+        elif deg == 2:
+            A, B, C = fit
+            dx = 2 * A * y_eval + B
+            d2x = 2 * A
+        elif deg == 1:
+            dx = fit[0]
+            d2x = 0.0
+        else:
+            return 0.0
+            
+        numerator = abs(d2x)
+        denominator = (1 + dx**2)**1.5
+        if denominator < 1e-6:
+            return 0.0
         return numerator / denominator
 
     def compute_steering(self, cv_image):
@@ -180,9 +238,12 @@ class LineDriver:
         height, width = cv_image.shape[:2]
         
         # --- 0. 동적 시야각(Dynamic FOV) 적용 ---
-        expansion = min(self.max_expand, self.k_expand * self.prev_kappa)
+        # 코너 감지 시점부터 부드럽고 신속하게 시야를 확장하기 위해 소프트스텝 함수 적용
+        expansion = self.max_expand * (self.prev_kappa / (self.prev_kappa + 0.0015))
         
         self.src_points = self.base_src_points.copy()
+        
+        # FOV 확장 적용 (상하좌우 대칭 확장으로 불안정한 Jittering 제거)
         self.src_points[0][0] -= expansion
         self.src_points[1][0] += expansion
         self.src_points[2][0] -= expansion
@@ -201,8 +262,12 @@ class LineDriver:
         yellow_warped = cv2.warpPerspective(yellow_mask, self.M, (width, height), flags=cv2.INTER_LINEAR)
         white_warped = cv2.warpPerspective(white_mask, self.M, (width, height), flags=cv2.INTER_LINEAR)
         
+        # FOV 확장에 따른 BEV 이미지 내 실제 차선 폭(lane_width) 변형 보정
+        src_width_base = 745.0
+        dynamic_lane_width = self.lane_width * src_width_base / (src_width_base + 2.0 * expansion)
+        
         # 4. 슬라이딩 윈도우 및 다항식 피팅
-        left_fit, right_fit, min_y_l, min_y_r = self.sliding_window(yellow_warped, white_warped)
+        left_fit, right_fit, min_y_l, min_y_r = self.sliding_window(yellow_warped, white_warped, dynamic_lane_width)
         
         # --- Look-ahead 전방 주시 곡률 예측 ---
         # 외삽 방지: 차선이 실제 검출된 가장 높은 지점(min_y)과 기본 전방주시점(height*0.2) 중 더 낮은 곳(y값이 큰 곳)을 기준
@@ -241,8 +306,8 @@ class LineDriver:
         target_fitx = None
         
         if left_fit is not None and right_fit is not None:
-            left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-            right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+            left_fitx = np.polyval(left_fit, ploty)
+            right_fitx = np.polyval(right_fit, ploty)
             target_fitx = (left_fitx + right_fitx) / 2.0
             
             left_pts = np.array([np.transpose(np.vstack([left_fitx, ploty]))], np.int32)
@@ -251,15 +316,15 @@ class LineDriver:
             cv2.polylines(out_img, [right_pts], isClosed=False, color=(0, 255, 0), thickness=2)
             
         elif left_fit is not None:
-            left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-            target_fitx = left_fitx + (self.lane_width / 2.0)
+            left_fitx = np.polyval(left_fit, ploty)
+            target_fitx = left_fitx + (dynamic_lane_width / 2.0)
             
             left_pts = np.array([np.transpose(np.vstack([left_fitx, ploty]))], np.int32)
             cv2.polylines(out_img, [left_pts], isClosed=False, color=(255, 0, 0), thickness=2)
             
         elif right_fit is not None:
-            right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
-            target_fitx = right_fitx - (self.lane_width / 2.0)
+            right_fitx = np.polyval(right_fit, ploty)
+            target_fitx = right_fitx - (dynamic_lane_width / 2.0)
             
             right_pts = np.array([np.transpose(np.vstack([right_fitx, ploty]))], np.int32)
             cv2.polylines(out_img, [right_pts], isClosed=False, color=(0, 255, 0), thickness=2)
@@ -283,7 +348,14 @@ class LineDriver:
         if target_fitx is not None:
             target_x = target_fitx[int(y_eval)] 
             
-        error = target_x - (width / 2.0)
+            # BEV 타겟 점을 다시 카메라 원본 이미지 좌표계로 역투영하여 
+            # FOV Shift 및 확장으로 인한 겉보기 위치 변화를 완벽하게 제거하고 정확한 조향 에러 계산
+            bev_target = np.array([[[target_x, y_eval]]], dtype=np.float32)
+            camera_target = cv2.perspectiveTransform(bev_target, self.Minv)
+            camera_target_x = camera_target[0][0][0]
+            error = camera_target_x - (width / 2.0)
+        else:
+            error = 0.0
         derivative = error - self.prev_error
         
         # --- 비선형(Quadratic) 조향 게인 스케줄링 ---
