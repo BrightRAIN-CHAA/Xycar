@@ -127,10 +127,10 @@ class TrackDriverNode(Node):
                     self.phase = 3
                     
             elif self.phase == 3:
-                # 아스팔트 차선 주행 모드 (카메라 기반)
+                # 아스팔트 차선 주행 모드 (카메라 기반 + 라이다 장애물 회피 퓨전)
                 if self.image is None:
                     continue
-                angle, speed = self.line_driver.compute_steering(self.image)
+                angle, speed = self.line_driver.compute_steering(self.image, self.lidar_ranges)
                 self.drive(angle, speed)
                 
 #=============================================

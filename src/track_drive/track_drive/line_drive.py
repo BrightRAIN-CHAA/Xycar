@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 class LineDriver:
-    def __init__(self, target_speed=10, kp=0.5, kd=0.4, a_max=0.01, k_expand=50000.0, max_expand=360.0, lane_width=360, lookahead_dist=100):
+    def __init__(self, target_speed=23, kp=0.5, kd=0.9, a_max=0.15, k_expand=50000.0, max_expand=360.0, lane_width=360, lookahead_dist=100):
         """
         카메라 차선 인식 주행(Phase 2)을 위한 클래스입니다.
         Bird's Eye View 변환 및 Sliding Window를 사용합니다.
@@ -24,6 +24,11 @@ class LineDriver:
         self.prev_angle = 0.0
         self.prev_kappa = 0.0    # 이전 프레임의 곡률(EMA 스무딩 적용)
         self.prev_speed = target_speed
+        
+        # 장애물 회피(치우침 주행) 상태 변수
+        self.lane_shift_offset = 0.0
+        self.shift_state = 'CENTER'
+        self.shift_timer = 0
         
         # 튜닝이 필요한 부분: 원근 변환(Perspective Transform) 기본 좌표
         self.base_src_points = np.float32([
@@ -98,11 +103,13 @@ class LineDriver:
                 else:
                     yellowx_base = max(0, expected_yellow)
         
-        # === 3. 좌측 흰색 차선 베이스 탐색 (노란선 왼쪽 전체 영역) ===
+        # === 3. 좌측 흰색 차선 베이스 탐색 (노란선 왼쪽에 위치) ===
         if yellowx_base is not None:
-            lw_search_end = max(0, int(yellowx_base) - 20)  # 노란선과 최소 20px 간격
-            if lw_search_end > 0 and np.max(hist_white[:lw_search_end]) > 0:
-                left_whitex_base = np.argmax(hist_white[:lw_search_end])
+            expected_left_white = int(yellowx_base - dynamic_lane_width)
+            lw_start = max(0, expected_left_white - 80)
+            lw_end = max(lw_start, min(int(yellowx_base) - 20, expected_left_white + 80))
+            if lw_start < lw_end and np.max(hist_white[lw_start:lw_end]) > 0:
+                left_whitex_base = np.argmax(hist_white[lw_start:lw_end]) + lw_start
             else:
                 left_whitex_base = None
         else:
@@ -239,7 +246,7 @@ class LineDriver:
             return 0.0
         return numerator / denominator
 
-    def compute_steering(self, cv_image):
+    def compute_steering(self, cv_image, lidar_ranges=None):
         if cv_image is None:
             return 0.0, 0.0
             
@@ -277,28 +284,40 @@ class LineDriver:
         # 4. 슬라이딩 윈도우 및 다항식 피팅 (3차선 검출)
         yellow_fit, rw_fit, lw_fit, min_y_y, min_y_rw, min_y_lw = self.sliding_window(yellow_warped, white_warped, dynamic_lane_width)
         
-        # --- Look-ahead 전방 주시 곡률 예측 ---
-        lookahead_y_y = max(height * 0.2, min_y_y)
-        lookahead_y_rw = max(height * 0.2, min_y_rw)
-        lookahead_y_lw = max(height * 0.2, min_y_lw)
-        
-        kappa_y = self.compute_curvature(yellow_fit, lookahead_y_y)
-        kappa_rw = self.compute_curvature(rw_fit, lookahead_y_rw)
-        kappa_lw = self.compute_curvature(lw_fit, lookahead_y_lw)
-        
-        kappa_list = [k for k in [kappa_y, kappa_rw, kappa_lw] if k > 0]
-        target_kappa = max(kappa_list) if kappa_list else 0.0
+        # --- 다중 지점 곡률(Kappa) 스캔 (완전한 직선 탈출 확인) ---
+        # 차량 코앞(y=height*0.9), 중간(y=height*0.5), 멀리(y=height*0.2) 
+        # 세 지점의 꺾임 정도를 모두 스캔하여 차가 온전히 직선에 들어왔는지 확인합니다.
+        kappas = []
+        eval_points = [height * 0.9, height * 0.5, height * 0.2]
+        for eval_y in eval_points:
+            if yellow_fit is not None and eval_y > min_y_y:
+                kappas.append(self.compute_curvature(yellow_fit, eval_y))
+            if rw_fit is not None and eval_y > min_y_rw:
+                kappas.append(self.compute_curvature(rw_fit, eval_y))
+            if lw_fit is not None and eval_y > min_y_lw:
+                kappas.append(self.compute_curvature(lw_fit, eval_y))
+                
+        target_kappa = max(kappas) if kappas else 0.0
             
         self.prev_kappa = self.prev_kappa * 0.7 + target_kappa * 0.3
         
         # --- 물리 기반 목표 속도 제어 (Square Root 모델) ---
         if self.prev_kappa > 1e-6:
-            v_curve = math.sqrt(self.a_max / self.prev_kappa)
+            # 곡선 구간의 속도를 기존 계산값 대비 70% 수준으로 강제 억제합니다.
+            v_curve = math.sqrt(self.a_max / self.prev_kappa) * 0.70
         else:
             v_curve = self.target_speed
             
         target_v = min(self.target_speed, v_curve)
-        current_speed = self.prev_speed * 0.8 + target_v * 0.2
+        
+        # --- 비대칭 가/감속 필터 ---
+        # 브레이크(감속)는 팍 밟고, 악셀(가속)은 매우 천천히 지그시 밟아서 
+        # 차량이 완전히 코너를 빠져나와 궤도를 확실히 잡은 뒤에야 속도가 올라가도록 설정합니다.
+        if target_v > self.prev_speed:
+            current_speed = self.prev_speed * 0.95 + target_v * 0.05 # 느린 가속
+        else:
+            current_speed = self.prev_speed * 0.4 + target_v * 0.6   # 즉각적인 감속
+            
         self.prev_speed = current_speed
 
         # --- 디버깅용 이미지 생성 (버드아이뷰 + 3차선 + 목표 경로) ---
@@ -307,30 +326,96 @@ class LineDriver:
         
         ploty = np.linspace(0, height - 1, height)
         
-        # 각 차선별 경로선 그리기 및 주행 경로 추정값 수집
-        estimates = []
+        # --- 주행 경로 추정 (중앙선 최우선 추종) ---
+        target_fitx = None
         
         if yellow_fit is not None:
             yellow_fitx = np.polyval(yellow_fit, ploty)
             yellow_pts = np.array([np.transpose(np.vstack([yellow_fitx, ploty]))], np.int32)
             cv2.polylines(out_img, [yellow_pts], isClosed=False, color=(255, 0, 0), thickness=2)  # 파란색: 노란 중앙선
-            estimates.append(yellow_fitx + dynamic_lane_width / 2.0)
+            # 1. 평균 계산 제거: 노란선(중앙선)이 보이면 1순위 메인 타겟으로 고정합니다.
+            target_fitx = yellow_fitx.copy()
+        else:
+            # 중앙선이 유실된 극한 상황에서만 양쪽 실선으로 중앙선을 임시 추정합니다.
+            estimates = []
+            if rw_fit is not None:
+                rw_fitx = np.polyval(rw_fit, ploty)
+                estimates.append(rw_fitx - dynamic_lane_width)
+            if lw_fit is not None:
+                lw_fitx = np.polyval(lw_fit, ploty)
+                estimates.append(lw_fitx + dynamic_lane_width)
+            if len(estimates) > 0:
+                target_fitx = np.mean(estimates, axis=0)
         
-        if rw_fit is not None:
-            rw_fitx = np.polyval(rw_fit, ploty)
-            rw_pts = np.array([np.transpose(np.vstack([rw_fitx, ploty]))], np.int32)
-            cv2.polylines(out_img, [rw_pts], isClosed=False, color=(0, 255, 0), thickness=2)  # 초록색: 우측 흰선
-            estimates.append(rw_fitx - dynamic_lane_width / 2.0)
-        
-        if lw_fit is not None:
-            lw_fitx = np.polyval(lw_fit, ploty)
-            lw_pts = np.array([np.transpose(np.vstack([lw_fitx, ploty]))], np.int32)
-            cv2.polylines(out_img, [lw_pts], isClosed=False, color=(255, 255, 0), thickness=2)  # 시안색: 좌측 흰선
-            estimates.append(lw_fitx + 1.5 * dynamic_lane_width)
-        
-        target_fitx = None
-        if len(estimates) > 0:
-            target_fitx = np.mean(estimates, axis=0)
+        if target_fitx is not None:
+            # --- LiDAR 기반 지능형 장애물 양방향 추월 로직 ---
+            left_obs_dist = float('inf')
+            right_obs_dist = float('inf')
+            
+            if lidar_ranges is not None and len(lidar_ranges) >= 360:
+                for idx in range(len(lidar_ranges)):
+                    d = lidar_ranges[idx]
+                    if math.isfinite(d) and d > 0.1:
+                        y = d * math.cos(math.radians(idx))
+                        x = d * math.sin(math.radians(idx))
+                        
+                        # 전방 4.5m 이내, 차체 기준 좌우측 1.0m 영역 스캔
+                        if 0.1 < y < 4.5 and abs(x) < 1.0:
+                            if x > 0.0:  # 좌측(1차선)에 장애물
+                                left_obs_dist = min(left_obs_dist, y)
+                            else:        # 우측(2차선)에 장애물
+                                right_obs_dist = min(right_obs_dist, y)
+            
+            # 상태 전이 (State Machine)
+            if left_obs_dist < 4.5 and right_obs_dist >= 4.5:
+                self.shift_state = 'RIGHT_OVERTAKE'
+                self.shift_timer = 30 # 약 1초(30프레임) 동안 회피 상태 유지
+            elif right_obs_dist < 4.5 and left_obs_dist >= 4.5:
+                self.shift_state = 'LEFT_OVERTAKE'
+                self.shift_timer = 30
+            elif left_obs_dist < 4.5 and right_obs_dist < 4.5:
+                # 양쪽 모두 장애물이면 더 가까운 장애물의 반대 방향으로 회피
+                if left_obs_dist < right_obs_dist:
+                    self.shift_state = 'RIGHT_OVERTAKE'
+                else:
+                    self.shift_state = 'LEFT_OVERTAKE'
+                self.shift_timer = 30
+            else:
+                if self.shift_timer > 0:
+                    self.shift_timer -= 1
+                else:
+                    self.shift_state = 'CENTER'
+                    
+            # 오프셋 산출: 중앙선에서 차선폭의 55% 만큼 이동하여 빈 차선으로 진입
+            if self.shift_state == 'RIGHT_OVERTAKE':
+                target_offset = dynamic_lane_width * 0.55  # 우측(2차선)으로 양수(+) 이동
+            elif self.shift_state == 'LEFT_OVERTAKE':
+                target_offset = -dynamic_lane_width * 0.55 # 좌측(1차선)으로 음수(-) 이동
+            else:
+                target_offset = 0.0 # 정중앙선 복귀
+                
+            # 부드러운 차선 변경을 위한 Low Pass Filter (LPF)
+            self.lane_shift_offset = self.lane_shift_offset * 0.92 + target_offset * 0.08
+            target_fitx = target_fitx + self.lane_shift_offset
+            
+            # --- 2. 외곽 실선 임계점(Boundary) 방어 로직 ---
+            # 평소에는 목표 경로에 아무런 간섭도 하지 않다가, 
+            # 타겟 경로가 외곽 실선을 밟으려 할 때만 강제로 안쪽으로 밀어넣습니다.
+            car_margin = 120 # 차체 폭 절반 수준의 안전 마진 (픽셀)
+            
+            if rw_fit is not None:
+                rw_fitx = np.polyval(rw_fit, ploty)
+                rw_pts = np.array([np.transpose(np.vstack([rw_fitx, ploty]))], np.int32)
+                cv2.polylines(out_img, [rw_pts], isClosed=False, color=(0, 255, 0), thickness=2)
+                # 타겟 경로가 우측 흰선을 120px 이내로 침범하려 하면 안쪽으로 강제 푸쉬 (Minimum 캡)
+                target_fitx = np.minimum(target_fitx, rw_fitx - car_margin)
+                
+            if lw_fit is not None:
+                lw_fitx = np.polyval(lw_fit, ploty)
+                lw_pts = np.array([np.transpose(np.vstack([lw_fitx, ploty]))], np.int32)
+                cv2.polylines(out_img, [lw_pts], isClosed=False, color=(255, 255, 0), thickness=2)
+                # 타겟 경로가 좌측 흰선을 120px 이내로 침범하려 하면 안쪽으로 강제 푸쉬 (Maximum 캡)
+                target_fitx = np.maximum(target_fitx, lw_fitx + car_margin)
         
         if target_fitx is not None:
             target_pts = np.array([np.transpose(np.vstack([target_fitx, ploty]))], np.int32)
@@ -346,8 +431,13 @@ class LineDriver:
         self.debug_img = out_img
         
         # 5. Cross Track Error 계산 및 조향 제어
-        # 전방 주시거리(lookahead_dist)만큼 위쪽 차선을 바라보아 코너 진입 시 미리 감아 나가도록 함
-        y_eval = max(0, min(height - 1, height - 1 - self.lookahead_dist))
+        # --- 동적 전방 주시거리 (Dynamic Lookahead) 복구 ---
+        # "뒤늦게 움직이는" 현상은 주시 거리가 너무 짧기 때문입니다.
+        # 속도가 빠를수록 차선 위쪽(더 멀리)을 바라보아 코너 진입 시 미리 감아 나가도록 합니다.
+        base_lookahead = self.lookahead_dist
+        speed_factor = max(0.0, current_speed - 10.0) * 12.0
+        dynamic_lookahead = int(min(280, base_lookahead + speed_factor))
+        y_eval = max(0, min(height - 1, height - 1 - dynamic_lookahead))
         
         target_x = width / 2.0
         if target_fitx is not None:
@@ -363,20 +453,47 @@ class LineDriver:
             error = 0.0
         derivative = error - self.prev_error
         
-        # --- 비선형(Quadratic) 조향 게인 스케줄링 ---
-        # 직선(error가 작을 때)에서는 게인을 대폭 낮추어(최소 0.1배) 미세 조향하고,
-        # 코너(error가 클 때)에서는 게인을 대폭 높여(최대 5.0배) 강하게 조향하도록 설계
-        e_norm = abs(error) / 40.0
-        scale = e_norm ** 2
-        scale = max(0.1, min(5.0, scale))
-        
-        dynamic_kp = self.kp * scale
-        dynamic_kd = self.kd * scale
+        # --- 조향 튜닝 (Understeering 해결) ---
+        # "차선을 하나도 못 따라가는" 현상은 조향력이 부족하기 때문입니다.
+        # 비례 제어(P게인)를 1.3배 늘려 추종력을 확실히 높이고, 
+        # 억누르는 힘(D게인)은 다시 정상 수준으로 되돌립니다.
+        dynamic_kp = self.kp * 1.3
+        dynamic_kd = self.kd * 1.0
         
         raw_angle = (dynamic_kp * error) + (dynamic_kd * derivative)
+        
+        # --- 심한 곡률에서 조향 증폭 ---
+        # "곡률이 심할 때에는 더 많이 조향을 하도록" 요청 반영
+        # 곡률(kappa) 값에 비례하여 최대 1.5배까지 전체 조향각을 뻥튀기합니다.
+        kappa_multiplier = 1.0 + min(0.5, self.prev_kappa * 50.0)
+        raw_angle *= kappa_multiplier
+        
+        # --- 전방 근접 차량 미세 회피 보완 (Micro-Evasion) ---
+        # 원거리 차선 변경(Overtake)과 별개로, 1.5m 이내로 아주 가깝게 접근해오는 차량이 있으면
+        # 닿지 않도록 스티어링 휠을 아주 살짝(약 8도) 직접적으로 쳐서 밀어냅니다.
+        evasion_steer = 0.0
+        if lidar_ranges is not None and len(lidar_ranges) >= 360:
+            for idx in range(len(lidar_ranges)):
+                d = lidar_ranges[idx]
+                if math.isfinite(d) and 0.1 < d < 1.5: # 1.5m 이내 초근접 시
+                    y = d * math.cos(math.radians(idx))
+                    x = d * math.sin(math.radians(idx))
+                    if 0.1 < y < 1.5 and abs(x) < 0.8: # 차체 좌우 폭 주변
+                        if x > 0.0:  # 왼쪽 전방에서 접근 -> 오른쪽(+)으로 정말 약간 조향
+                            evasion_steer = max(evasion_steer, 8.0) 
+                        else:        # 오른쪽 전방에서 접근 -> 왼쪽(-)으로 정말 약간 조향
+                            evasion_steer = min(evasion_steer, -8.0)
+                            
+        raw_angle += evasion_steer
+        
+        # --- 비대칭 조향 (우회전 강화) 조건부 적용 ---
+        if raw_angle > 0 and abs(error) > 40.0:
+            raw_angle *= 1.4
+            
         self.prev_error = error
         
-        angle = self.prev_angle * 0.7 + raw_angle * 0.3
+        # 제어 지연(Lag) 최소화: 즉각적으로 핸들이 반응하도록 유지
+        angle = self.prev_angle * 0.3 + raw_angle * 0.7
         angle = max(-100.0, min(100.0, angle))
         self.prev_angle = angle
         
