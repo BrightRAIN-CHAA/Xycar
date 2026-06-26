@@ -58,152 +58,160 @@ class LineDriver:
         # 마스크를 합치지 않고 개별 반환 (체크무늬 간섭 방지)
         return yellow_mask, white_mask
 
-    def sliding_window(self, left_warped, right_warped, dynamic_lane_width):
-        height = left_warped.shape[0]
-        hist_left = np.sum(left_warped[height//2:, :], axis=0)
-        hist_right = np.sum(right_warped[height//2:, :], axis=0)
+    def sliding_window(self, yellow_warped, white_warped, dynamic_lane_width):
+        """3차선 검출: 좌측 흰색 실선, 노란색 중앙선, 우측 흰색 실선"""
+        height = yellow_warped.shape[0]
+        img_width = yellow_warped.shape[1]
         
-        midpoint = int(hist_left.shape[0] // 2)
-        width = left_warped.shape[1]
+        hist_yellow = np.sum(yellow_warped[height//2:, :], axis=0)
+        hist_white = np.sum(white_warped[height//2:, :], axis=0)
         
-        # 1. 좌측 차선 우선 탐색
-        if np.max(hist_left[:midpoint]) > 0:
-            leftx_base = np.argmax(hist_left[:midpoint])
+        midpoint = img_width // 2
+        
+        # === 1. 노란색 중앙선 베이스 탐색 (좌측 절반) ===
+        if np.max(hist_yellow[:midpoint]) > 0:
+            yellowx_base = np.argmax(hist_yellow[:midpoint])
         else:
-            leftx_base = None
-            
-        # 2. 우측 차선 탐색 (좌측 차선이 검출되었다면 인접 차선 간섭 방지를 위해 탐색 영역을 제한)
-        if leftx_base is not None:
-            expected_right = int(leftx_base + dynamic_lane_width)
+            yellowx_base = None
+        
+        # === 2. 우측 흰색 차선 베이스 탐색 (노란선 기준 크로스 가이드) ===
+        if yellowx_base is not None:
+            expected_right = int(yellowx_base + dynamic_lane_width)
             r_start = max(midpoint, expected_right - 80)
-            r_end = min(width, expected_right + 80)
-            if r_start < r_end and np.max(hist_right[r_start:r_end]) > 0:
-                rightx_base = np.argmax(hist_right[r_start:r_end]) + r_start
+            r_end = min(img_width, expected_right + 80)
+            if r_start < r_end and np.max(hist_white[r_start:r_end]) > 0:
+                right_whitex_base = np.argmax(hist_white[r_start:r_end]) + r_start
             else:
-                rightx_base = min(width - 1, expected_right)
+                right_whitex_base = min(img_width - 1, expected_right)
         else:
-            # 좌측 차선이 없는 경우 우측 절반 영역에서 탐색
-            if np.max(hist_right[midpoint:]) > 0:
-                rightx_base = np.argmax(hist_right[midpoint:]) + midpoint
+            if np.max(hist_white[midpoint:]) > 0:
+                right_whitex_base = np.argmax(hist_white[midpoint:]) + midpoint
             else:
-                rightx_base = None
-                
-            # 우측 차선이 검출되었다면 좌측 차선 역유도
-            if rightx_base is not None:
-                expected_left = int(rightx_base - dynamic_lane_width)
-                l_start = max(0, expected_left - 80)
-                l_end = min(midpoint, expected_left + 80)
-                if l_start < l_end and np.max(hist_left[l_start:l_end]) > 0:
-                    leftx_base = np.argmax(hist_left[l_start:l_end]) + l_start
+                right_whitex_base = None
+            # 우측 차선으로부터 노란선 역유도
+            if right_whitex_base is not None and yellowx_base is None:
+                expected_yellow = int(right_whitex_base - dynamic_lane_width)
+                y_start = max(0, expected_yellow - 80)
+                y_end = min(midpoint, expected_yellow + 80)
+                if y_start < y_end and np.max(hist_yellow[y_start:y_end]) > 0:
+                    yellowx_base = np.argmax(hist_yellow[y_start:y_end]) + y_start
                 else:
-                    leftx_base = max(0, expected_left)
-            
+                    yellowx_base = max(0, expected_yellow)
+        
+        # === 3. 좌측 흰색 차선 베이스 탐색 (노란선 왼쪽 전체 영역) ===
+        if yellowx_base is not None:
+            lw_search_end = max(0, int(yellowx_base) - 20)  # 노란선과 최소 20px 간격
+            if lw_search_end > 0 and np.max(hist_white[:lw_search_end]) > 0:
+                left_whitex_base = np.argmax(hist_white[:lw_search_end])
+            else:
+                left_whitex_base = None
+        else:
+            lw_region = img_width // 3
+            if np.max(hist_white[:lw_region]) > 0:
+                left_whitex_base = np.argmax(hist_white[:lw_region])
+            else:
+                left_whitex_base = None
+        
+        # === 슬라이딩 윈도우 설정 ===
         nwindows = 9
         window_height = int(height // nwindows)
         
-        nonzero_l = left_warped.nonzero()
-        nonzeroy_l = np.array(nonzero_l[0])
-        nonzerox_l = np.array(nonzero_l[1])
+        nonzero_y = yellow_warped.nonzero()
+        nonzeroy_y = np.array(nonzero_y[0])
+        nonzerox_y = np.array(nonzero_y[1])
         
-        nonzero_r = right_warped.nonzero()
-        nonzeroy_r = np.array(nonzero_r[0])
-        nonzerox_r = np.array(nonzero_r[1])
+        nonzero_w = white_warped.nonzero()
+        nonzeroy_w = np.array(nonzero_w[0])
+        nonzerox_w = np.array(nonzero_w[1])
         
-        leftx_current = leftx_base
-        rightx_current = rightx_base
+        yellowx_current = yellowx_base
+        right_whitex_current = right_whitex_base
+        left_whitex_current = left_whitex_base
         
-        margin = 120 # 급코너 추적을 위해 마진 넉넉하게 유지
+        margin = 120
         minpix = 40
         
-        left_lane_inds = []
-        right_lane_inds = []
+        yellow_lane_inds = []
+        right_white_lane_inds = []
+        left_white_lane_inds = []
         
         for window in range(nwindows):
             win_y_low = height - (window + 1) * window_height
             win_y_high = height - window * window_height
             
-            # 왼쪽 차선 슬라이딩 윈도우
-            if leftx_current is not None:
-                win_xleft_low = leftx_current - margin
-                win_xleft_high = leftx_current + margin
-                good_left_inds = ((nonzeroy_l >= win_y_low) & (nonzeroy_l < win_y_high) & 
-                                  (nonzerox_l >= win_xleft_low) & (nonzerox_l < win_xleft_high)).nonzero()[0]
-                
-                # 가로선(정지선) 필터링: 넓게 퍼져있으면 무시
+            # --- 노란색 중앙선 윈도우 ---
+            if yellowx_current is not None:
+                win_x_low = yellowx_current - margin
+                win_x_high = yellowx_current + margin
+                good_inds = ((nonzeroy_y >= win_y_low) & (nonzeroy_y < win_y_high) &
+                             (nonzerox_y >= win_x_low) & (nonzerox_y < win_x_high)).nonzero()[0]
                 is_valid = True
-                if len(good_left_inds) > 0:
-                    x_pixels = nonzerox_l[good_left_inds]
+                if len(good_inds) > 0:
+                    x_pixels = nonzerox_y[good_inds]
                     if (np.max(x_pixels) - np.min(x_pixels)) > 80:
                         is_valid = False
-                
-                if is_valid and len(good_left_inds) > 0:
-                    left_lane_inds.append(good_left_inds)
-                    if len(good_left_inds) > minpix:
-                        leftx_current = int(np.mean(nonzerox_l[good_left_inds]))
-                        
-            # 오른쪽 차선 슬라이딩 윈도우
-            if rightx_current is not None:
-                win_xright_low = rightx_current - margin
-                win_xright_high = rightx_current + margin
-                good_right_inds = ((nonzeroy_r >= win_y_low) & (nonzeroy_r < win_y_high) & 
-                                   (nonzerox_r >= win_xright_low) & (nonzerox_r < win_xright_high)).nonzero()[0]
-                
-                # 가로선(정지선) 필터링: 넓게 퍼져있으면 무시
+                if is_valid and len(good_inds) > 0:
+                    yellow_lane_inds.append(good_inds)
+                    if len(good_inds) > minpix:
+                        yellowx_current = int(np.mean(nonzerox_y[good_inds]))
+            
+            # --- 우측 흰색 차선 윈도우 ---
+            if right_whitex_current is not None:
+                win_x_low = right_whitex_current - margin
+                win_x_high = right_whitex_current + margin
+                good_inds = ((nonzeroy_w >= win_y_low) & (nonzeroy_w < win_y_high) &
+                             (nonzerox_w >= win_x_low) & (nonzerox_w < win_x_high)).nonzero()[0]
                 is_valid = True
-                if len(good_right_inds) > 0:
-                    x_pixels = nonzerox_r[good_right_inds]
+                if len(good_inds) > 0:
+                    x_pixels = nonzerox_w[good_inds]
                     if (np.max(x_pixels) - np.min(x_pixels)) > 80:
                         is_valid = False
-                        
-                if is_valid and len(good_right_inds) > 0:
-                    right_lane_inds.append(good_right_inds)
-                    if len(good_right_inds) > minpix:
-                        rightx_current = int(np.mean(nonzerox_r[good_right_inds]))
-                        
-        min_y_l = height
-        min_y_r = height
+                if is_valid and len(good_inds) > 0:
+                    right_white_lane_inds.append(good_inds)
+                    if len(good_inds) > minpix:
+                        right_whitex_current = int(np.mean(nonzerox_w[good_inds]))
+            
+            # --- 좌측 흰색 차선 윈도우 ---
+            if left_whitex_current is not None:
+                win_x_low = left_whitex_current - margin
+                win_x_high = left_whitex_current + margin
+                good_inds = ((nonzeroy_w >= win_y_low) & (nonzeroy_w < win_y_high) &
+                             (nonzerox_w >= win_x_low) & (nonzerox_w < win_x_high)).nonzero()[0]
+                is_valid = True
+                if len(good_inds) > 0:
+                    x_pixels = nonzerox_w[good_inds]
+                    if (np.max(x_pixels) - np.min(x_pixels)) > 80:
+                        is_valid = False
+                if is_valid and len(good_inds) > 0:
+                    left_white_lane_inds.append(good_inds)
+                    if len(good_inds) > minpix:
+                        left_whitex_current = int(np.mean(nonzerox_w[good_inds]))
         
-        # 왼쪽 차선 다항식 피팅
-        if len(left_lane_inds) > 0:
-            left_lane_inds = np.concatenate(left_lane_inds)
-            leftx = nonzerox_l[left_lane_inds]
-            lefty = nonzeroy_l[left_lane_inds] 
-            if len(leftx) > 50:
-                y_span = np.max(lefty) - np.min(lefty)
-                if y_span > 220:
-                    left_fit = np.polyfit(lefty, leftx, 3) # S자 코너 대응 3차식
-                elif y_span > 100:
-                    left_fit = np.polyfit(lefty, leftx, 2) # 일반 코너 2차식
+        # === 다항식 피팅 (공통 헬퍼) ===
+        def _fit_lane(lane_inds_list, nonzerox, nonzeroy):
+            if len(lane_inds_list) > 0:
+                all_inds = np.concatenate(lane_inds_list)
+                x = nonzerox[all_inds]
+                y = nonzeroy[all_inds]
+                if len(x) > 50:
+                    y_span = np.max(y) - np.min(y)
+                    if y_span > 220:
+                        fit = np.polyfit(y, x, 3)
+                    elif y_span > 100:
+                        fit = np.polyfit(y, x, 2)
+                    else:
+                        fit = np.polyfit(y, x, 1)
                 else:
-                    left_fit = np.polyfit(lefty, leftx, 1) # 짧은 구간/직선 1차식
-            else:
-                left_fit = None
-            if len(lefty) > 0:
-                min_y_l = np.min(lefty)
-        else:
-            left_fit = None
-            
-        # 오른쪽 차선 다항식 피팅
-        if len(right_lane_inds) > 0:
-            right_lane_inds = np.concatenate(right_lane_inds)
-            rightx = nonzerox_r[right_lane_inds]
-            righty = nonzeroy_r[right_lane_inds]
-            if len(rightx) > 50:
-                y_span = np.max(righty) - np.min(righty)
-                if y_span > 220:
-                    right_fit = np.polyfit(righty, rightx, 3) # S자 코너 대응 3차식
-                elif y_span > 100:
-                    right_fit = np.polyfit(righty, rightx, 2) # 일반 코너 2차식
-                else:
-                    right_fit = np.polyfit(righty, rightx, 1) # 짧은 구간/직선 1차식
-            else:
-                right_fit = None
-            if len(righty) > 0:
-                min_y_r = np.min(righty)
-        else:
-            right_fit = None
-            
-        return left_fit, right_fit, min_y_l, min_y_r
+                    fit = None
+                min_y = np.min(y) if len(y) > 0 else height
+                return fit, min_y
+            return None, height
+        
+        yellow_fit, min_y_yellow = _fit_lane(yellow_lane_inds, nonzerox_y, nonzeroy_y)
+        rw_fit, min_y_rw = _fit_lane(right_white_lane_inds, nonzerox_w, nonzeroy_w)
+        lw_fit, min_y_lw = _fit_lane(left_white_lane_inds, nonzerox_w, nonzeroy_w)
+        
+        return yellow_fit, rw_fit, lw_fit, min_y_yellow, min_y_rw, min_y_lw
 
     def compute_curvature(self, fit, y_eval):
         """ 다항식 차수(fit의 길이)에 맞춰 곡률(|k|)을 계산합니다. """
@@ -266,25 +274,20 @@ class LineDriver:
         src_width_base = 745.0
         dynamic_lane_width = self.lane_width * src_width_base / (src_width_base + 2.0 * expansion)
         
-        # 4. 슬라이딩 윈도우 및 다항식 피팅
-        left_fit, right_fit, min_y_l, min_y_r = self.sliding_window(yellow_warped, white_warped, dynamic_lane_width)
+        # 4. 슬라이딩 윈도우 및 다항식 피팅 (3차선 검출)
+        yellow_fit, rw_fit, lw_fit, min_y_y, min_y_rw, min_y_lw = self.sliding_window(yellow_warped, white_warped, dynamic_lane_width)
         
         # --- Look-ahead 전방 주시 곡률 예측 ---
-        # 외삽 방지: 차선이 실제 검출된 가장 높은 지점(min_y)과 기본 전방주시점(height*0.2) 중 더 낮은 곳(y값이 큰 곳)을 기준
-        lookahead_y_left = max(height * 0.2, min_y_l)
-        lookahead_y_right = max(height * 0.2, min_y_r)
+        lookahead_y_y = max(height * 0.2, min_y_y)
+        lookahead_y_rw = max(height * 0.2, min_y_rw)
+        lookahead_y_lw = max(height * 0.2, min_y_lw)
         
-        kappa_left = self.compute_curvature(left_fit, lookahead_y_left)
-        kappa_right = self.compute_curvature(right_fit, lookahead_y_right)
+        kappa_y = self.compute_curvature(yellow_fit, lookahead_y_y)
+        kappa_rw = self.compute_curvature(rw_fit, lookahead_y_rw)
+        kappa_lw = self.compute_curvature(lw_fit, lookahead_y_lw)
         
-        if left_fit is not None and right_fit is not None:
-            target_kappa = max(kappa_left, kappa_right)
-        elif left_fit is not None:
-            target_kappa = kappa_left
-        elif right_fit is not None:
-            target_kappa = kappa_right
-        else:
-            target_kappa = 0.0
+        kappa_list = [k for k in [kappa_y, kappa_rw, kappa_lw] if k > 0]
+        target_kappa = max(kappa_list) if kappa_list else 0.0
             
         self.prev_kappa = self.prev_kappa * 0.7 + target_kappa * 0.3
         
@@ -298,45 +301,47 @@ class LineDriver:
         current_speed = self.prev_speed * 0.8 + target_v * 0.2
         self.prev_speed = current_speed
 
-        # --- 디버깅용 이미지 생성 (버드아이뷰 + 목표 경로 + 데이터) ---
+        # --- 디버깅용 이미지 생성 (버드아이뷰 + 3차선 + 목표 경로) ---
         binary_warped = cv2.bitwise_or(yellow_warped, white_warped)
         out_img = np.dstack((binary_warped, binary_warped, binary_warped)).astype(np.uint8)
         
         ploty = np.linspace(0, height - 1, height)
-        target_fitx = None
         
-        if left_fit is not None and right_fit is not None:
-            left_fitx = np.polyval(left_fit, ploty)
-            right_fitx = np.polyval(right_fit, ploty)
-            target_fitx = (left_fitx + right_fitx) / 2.0
-            
-            left_pts = np.array([np.transpose(np.vstack([left_fitx, ploty]))], np.int32)
-            right_pts = np.array([np.transpose(np.vstack([right_fitx, ploty]))], np.int32)
-            cv2.polylines(out_img, [left_pts], isClosed=False, color=(255, 0, 0), thickness=2)
-            cv2.polylines(out_img, [right_pts], isClosed=False, color=(0, 255, 0), thickness=2)
-            
-        elif left_fit is not None:
-            left_fitx = np.polyval(left_fit, ploty)
-            target_fitx = left_fitx + (dynamic_lane_width / 2.0)
-            
-            left_pts = np.array([np.transpose(np.vstack([left_fitx, ploty]))], np.int32)
-            cv2.polylines(out_img, [left_pts], isClosed=False, color=(255, 0, 0), thickness=2)
-            
-        elif right_fit is not None:
-            right_fitx = np.polyval(right_fit, ploty)
-            target_fitx = right_fitx - (dynamic_lane_width / 2.0)
-            
-            right_pts = np.array([np.transpose(np.vstack([right_fitx, ploty]))], np.int32)
-            cv2.polylines(out_img, [right_pts], isClosed=False, color=(0, 255, 0), thickness=2)
-            
+        # 각 차선별 경로선 그리기 및 주행 경로 추정값 수집
+        estimates = []
+        
+        if yellow_fit is not None:
+            yellow_fitx = np.polyval(yellow_fit, ploty)
+            yellow_pts = np.array([np.transpose(np.vstack([yellow_fitx, ploty]))], np.int32)
+            cv2.polylines(out_img, [yellow_pts], isClosed=False, color=(255, 0, 0), thickness=2)  # 파란색: 노란 중앙선
+            estimates.append(yellow_fitx + dynamic_lane_width / 2.0)
+        
+        if rw_fit is not None:
+            rw_fitx = np.polyval(rw_fit, ploty)
+            rw_pts = np.array([np.transpose(np.vstack([rw_fitx, ploty]))], np.int32)
+            cv2.polylines(out_img, [rw_pts], isClosed=False, color=(0, 255, 0), thickness=2)  # 초록색: 우측 흰선
+            estimates.append(rw_fitx - dynamic_lane_width / 2.0)
+        
+        if lw_fit is not None:
+            lw_fitx = np.polyval(lw_fit, ploty)
+            lw_pts = np.array([np.transpose(np.vstack([lw_fitx, ploty]))], np.int32)
+            cv2.polylines(out_img, [lw_pts], isClosed=False, color=(255, 255, 0), thickness=2)  # 시안색: 좌측 흰선
+            estimates.append(lw_fitx + 1.5 * dynamic_lane_width)
+        
+        target_fitx = None
+        if len(estimates) > 0:
+            target_fitx = np.mean(estimates, axis=0)
+        
         if target_fitx is not None:
             target_pts = np.array([np.transpose(np.vstack([target_fitx, ploty]))], np.int32)
-            cv2.polylines(out_img, [target_pts], isClosed=False, color=(0, 0, 255), thickness=1)
+            cv2.polylines(out_img, [target_pts], isClosed=False, color=(0, 0, 255), thickness=3)
             
         # 텍스트 오버레이
+        n_lanes = sum(1 for f in [yellow_fit, rw_fit, lw_fit] if f is not None)
         cv2.putText(out_img, f"Kappa: {self.prev_kappa:.5f}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         cv2.putText(out_img, f"Speed: {current_speed:.2f}", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         cv2.putText(out_img, f"FOV Exp: {expansion:.1f} px", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(out_img, f"Lanes: {n_lanes}/3", (20, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         
         self.debug_img = out_img
         
